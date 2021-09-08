@@ -1,32 +1,37 @@
 package com.hiddentao.cordova.filepath;
 
-import android.text.TextUtils;
 import android.Manifest;
 import android.content.ContentUris;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.net.Uri;
-import android.provider.OpenableColumns;
-import android.util.Log;
 import android.database.Cursor;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
+import android.provider.OpenableColumns;
+import android.text.TextUtils;
+import android.util.Log;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaInterface;
 import org.apache.cordova.CordovaPlugin;
 import org.apache.cordova.CordovaWebView;
 import org.apache.cordova.PermissionHelper;
 import org.json.JSONArray;
-import org.json.JSONObject;
 import org.json.JSONException;
+import org.json.JSONObject;
 
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.util.List;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.List;
 
 public class FilePath extends CordovaPlugin {
 
@@ -69,7 +74,6 @@ public class FilePath extends CordovaPlugin {
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
         this.callback = callbackContext;
         this.uriStr = args.getString(0);
-
         if (action.equals("resolveNativePath")) {
             if (PermissionHelper.hasPermission(this, READ)) {
                 resolveNativePath();
@@ -96,11 +100,18 @@ public class FilePath extends CordovaPlugin {
         JSONObject resultObj = new JSONObject();
         /* content:///... */
         Uri pvUrl = Uri.parse(this.uriStr);
-
         Log.d(TAG, "URI: " + this.uriStr);
 
         Context appContext = this.cordova.getActivity().getApplicationContext();
-        String filePath = getPath(appContext, pvUrl);
+        String filePath;
+
+        final boolean isNougat = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
+
+        if(isNougat) {
+            filePath = getFilePathFromURI(appContext, pvUrl);
+        } else {
+            filePath = getPath(appContext, pvUrl);
+        }
 
         //check result; send error/success callback
         if (filePath == GET_PATH_ERROR_ID) {
@@ -122,6 +133,96 @@ public class FilePath extends CordovaPlugin {
         }
     }
 
+    public static String getFilePathFromURI(Context context, Uri contentUri)  {
+        //copy file and send new file path
+        String fileName = getFileName(context,contentUri);
+        if (!TextUtils.isEmpty(fileName)) {
+            String applicationFolderPathName = Environment.getExternalStorageDirectory().getPath() +
+                    File.separator +  getApplicationName(context);
+            File folder = new File (applicationFolderPathName);
+
+            boolean success = true;
+
+            if (!folder.exists()) {
+                success = folder.mkdirs();
+            }
+
+            if (success) {
+                try {
+                    String suffix = fileName.substring(fileName.lastIndexOf("."));
+                    File tempFile = File.createTempFile("temp", suffix);
+                    File dstFile = new File(applicationFolderPathName + File.separator + fileName);
+                    copy(context, contentUri, tempFile);
+                    copyFileUsingStream(tempFile,dstFile);
+                    return dstFile.getAbsolutePath();
+                }catch (IOException e){
+                    e.printStackTrace();
+                }
+            }
+        }
+        return null;
+    }
+
+    public static void copy(Context context, Uri srcUri, File file) {
+        try {
+            InputStream inputStream = context.getContentResolver().openInputStream(srcUri);
+            if (inputStream == null) return;
+            OutputStream outputStream = new FileOutputStream(file);
+            IOUtils.copy(inputStream, outputStream);
+            inputStream.close();
+            outputStream.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void copyFileUsingStream(File source, File dest) throws IOException {
+        InputStream is = null;
+        OutputStream os = null;
+        try {
+            is = new FileInputStream(source);
+            os = new FileOutputStream(dest);
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = is.read(buffer)) > 0) {
+                os.write(buffer, 0, length);
+            }
+        } finally {
+            is.close();
+            os.close();
+        }
+    }
+
+
+    public static String getFileName(Context context,Uri uri) {
+        String result = null;
+        if (uri.getScheme().equals("content")) {
+            Cursor cursor = context.getContentResolver().query(uri, null, null, null, null);
+            try {
+                if (cursor != null && cursor.moveToFirst()) {
+                    result = cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+                }
+            } finally {
+                cursor.close();
+            }
+        }
+        if (result == null) {
+            result = uri.getPath();
+            int cut = result.lastIndexOf('/');
+            if (cut != -1) {
+                result = result.substring(cut + 1);
+            }
+        }
+        return result;
+    }
+
+
+
+    public static String getApplicationName(Context context) {
+        ApplicationInfo applicationInfo = context.getApplicationInfo();
+        int stringId = applicationInfo.labelRes;
+        return stringId == 0 ? applicationInfo.nonLocalizedLabel.toString() : context.getString(stringId);
+    }
 
     public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) throws JSONException {
         for (int r : grantResults) {
