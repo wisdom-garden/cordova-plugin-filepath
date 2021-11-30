@@ -155,8 +155,10 @@ public class FilePath extends CordovaPlugin {
                     copy(context, contentUri, tempFile);
                     copyFileUsingStream(tempFile,dstFile);
                     return dstFile.getAbsolutePath();
-                }catch (IOException e){
+                } catch (IOException e){
                     e.printStackTrace();
+                } catch (Exception e) {
+                    return getPath(context, contentUri);
                 }
             }
         }
