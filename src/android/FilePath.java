@@ -105,9 +105,12 @@ public class FilePath extends CordovaPlugin {
         Context appContext = this.cordova.getActivity().getApplicationContext();
         String filePath;
 
-        final boolean isNougat = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
-
-        if(isNougat) {
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Seems like once you target API level 30, you can't access files you should have
+            // access to. So then always run this getDriveFilePath which will use
+            // getContentResolver().openInputStream(uri) to read it
+            filePath = getDriveFilePath(pvUrl, appContext);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             filePath = getFilePathFromURI(appContext, pvUrl);
         } else {
             filePath = getPath(appContext, pvUrl);
@@ -160,6 +163,8 @@ public class FilePath extends CordovaPlugin {
                 } catch (Exception e) {
                     return getPath(context, contentUri);
                 }
+            } else {
+                return getPath(context, contentUri);
             }
         }
         return null;
@@ -319,6 +324,8 @@ public class FilePath extends CordovaPlugin {
                 final int column_index = cursor.getColumnIndexOrThrow(column);
                 return cursor.getString(column_index);
             }
+        } catch (Exception exception) {
+            exception.printStackTrace();
         } finally {
             if (cursor != null)
                 cursor.close();
@@ -402,6 +409,31 @@ public class FilePath extends CordovaPlugin {
         }
 
         return "";
+    }
+
+    private static void copyFileStream(File dest, Uri uri, Context context) {
+        InputStream is = null;
+        OutputStream os = null;
+        try {
+            is = context.getContentResolver().openInputStream(uri);
+            os = new FileOutputStream(dest);
+            byte[] buffer = new byte[1024];
+            int length;
+
+            while ((length = is.read(buffer)) > 0) {
+                os.write(buffer, 0, length);
+
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                is.close();
+                os.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     /**
@@ -500,6 +532,24 @@ public class FilePath extends CordovaPlugin {
                     contentUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
                 } else if ("audio".equals(type)) {
                     contentUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+                } else if ("document".equals(type)) {
+                    String filename = null;
+                    Uri returnUri = uri;
+                    Cursor returnCursor = context.getContentResolver().query(returnUri, null, null, null, null);
+                    int nameIndex = returnCursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    int sizeIndex = returnCursor.getColumnIndex(OpenableColumns.SIZE);
+                    returnCursor.moveToFirst();
+                    filename = returnCursor.getString(nameIndex);
+                    String size = Long.toString(returnCursor.getLong(sizeIndex));
+                    File fileSave = context.getExternalFilesDir(null);
+                    String sourcePath = context.getExternalFilesDir(null).toString();
+                    File file = new File(sourcePath + "/" + filename);
+                    try {
+                        copyFileStream(file, uri, context);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    return file.getAbsolutePath();
                 } else {
                     contentUri = MediaStore.Files.getContentUri("external");
                 }
