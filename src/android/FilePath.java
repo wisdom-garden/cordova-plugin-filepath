@@ -52,13 +52,16 @@ public class FilePath extends CordovaPlugin {
 
     public static final int READ_REQ_CODE = 0;
 
-    public static final String READ = Manifest.permission.READ_EXTERNAL_STORAGE;
+    public String READ = Manifest.permission.READ_EXTERNAL_STORAGE;
 
     protected void getReadPermission(int requestCode) {
         PermissionHelper.requestPermission(this, requestCode, READ);
     }
 
     public void initialize(CordovaInterface cordova, final CordovaWebView webView) {
+        if(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            READ = Manifest.permission.READ_MEDIA_IMAGES;
+        }
         super.initialize(cordova, webView);
     }
 
