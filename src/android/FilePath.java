@@ -621,6 +621,9 @@ public class FilePath extends CordovaPlugin {
 
             //int bufferSize = 1024;
             int bufferSize = Math.min(bytesAvailable, maxBufferSize);
+            if(bufferSize == 0) {
+                bufferSize = maxBufferSize;
+            }
 
             final byte[] buffers = new byte[bufferSize];
             while ((read = inputStream.read(buffers)) != -1) {
